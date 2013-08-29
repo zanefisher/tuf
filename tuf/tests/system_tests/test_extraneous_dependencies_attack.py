@@ -106,7 +106,6 @@ def test_extraneous_dependency_attack(TUF=False):
     dependent_basename = os.path.basename(dependent_filepath)
 
     url_to_repo = url+'reg_repo/'+dependent_basename
-    #downloaded_file = os.path.join(downloads, dependent_basename)
     modified_dependency_list = good_dependency_basename+','+bad_dependency_basename
 
     if TUF:

@@ -136,7 +136,7 @@ def test_arbitrary_package_attack(TUF=False):
 
 
 
-
+print 'Attempting arbitrary package attack without TUF:'
 try:
   test_arbitrary_package_attack(TUF=False)
 
@@ -144,7 +144,7 @@ except ArbitraryPackageAlert, error:
   print error
 
 
-
+print 'Attempting arbitrary package attack with TUF:'
 try:
   test_arbitrary_package_attack(TUF=True)
 

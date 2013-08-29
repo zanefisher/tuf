@@ -148,13 +148,13 @@ def test_indefinite_freeze_attack(TUF=False):
 
 
 
-
+print 'Attempting indefinite freeze attack without TUF:'
 try:
   test_indefinite_freeze_attack(TUF=False)
 except IndefiniteFreezeAttackAlert, error:
   print error
 
-
+print 'Attempting indefinite freeze attack with TUF:'
 try:
   test_indefinite_freeze_attack(TUF=True)
 except IndefiniteFreezeAttackAlert, error:

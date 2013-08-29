@@ -124,13 +124,13 @@ def test_slow_retrieval_attack(TUF=False):
 
 
 
-
+print 'Attempting slow retrieval attack without TUF:'
 try:
   test_slow_retrieval_attack(TUF=False)
 except SlowRetrievalAttackAlert, error:
   print error
 
-
+print 'Attempting slow retrieval attack with TUF:'
 try:
   test_slow_retrieval_attack(TUF=True)
 except SlowRetrievalAttackAlert, error:

@@ -185,13 +185,13 @@ def test_mix_and_match_attack(TUF=False):
 
 
 
-
+print 'Attempting mix and match attack without TUF:'
 try:
   test_mix_and_match_attack(TUF=False)
 except MixAndMatchAttackAlert, error:
   print error
 
-
+print 'Attempting mix and match attack with TUF:'
 try:
   test_mix_and_match_attack(TUF=True)
 except MixAndMatchAttackAlert, error:

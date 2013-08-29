@@ -178,14 +178,14 @@ def test_replay_attack(TUF=False):
 
 
 
-
+print 'Attempting replay attack without TUF:'
 try:
   test_replay_attack(TUF=False)
 except ReplayAttackAlert, error:
   print error
 
 
-
+print 'Attempting replay attack with TUF:'
 try:
   test_replay_attack(TUF=True)
 except ReplayAttackAlert, error:
