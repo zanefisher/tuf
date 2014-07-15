@@ -10,6 +10,8 @@
 - [Delegations](#delegations)
 - [Managing Keys](#managing_keys)
 - [Managing Targets](#managing_targets)
+- [The Status Method](#the_status_method)
+- [Writing Metadata as a Delegated Role](#writing_metadata_as_a_delegated_role)
 
 <a name="overview">
 ## Overview 
@@ -192,17 +194,17 @@ to delegate a new role for them. For example, we can do the following:
 >>> project.delegate(“newrole”, [other_key], targets)
 ```
 
+(Note that we input the other person’s key as part of a list. That list can
+contain any number of public keys. We can also add keys to the role after
+creating it using the [add\_verification\_key()](#adding_a_key_to_a_delegation)
+method.)
+
 The new role is now an attribute of the Project instance, and contains the same
 methods as Project. For example, we can add targets in the same way as before:
 
 ```
 >>> project(“newrole”).add_target(“delegated_1”)
 ```
-
-Recall that we input the other person’s key as part of a list. That list can
-contain any number of public keys. We can also add keys to the role after
-creating it using the [add\_verification\_key()](#adding_a_key_to_a_delegation)
-method.
 
 ### Restricted Paths
 
@@ -316,6 +318,8 @@ The above line will set the "rolename" role's threshold to 2.
 There are supporting functions of the targets library to make the project
 maintenance easier. These functions are described in this section.
 
+### Listing Targets
+
 ### Adding Targets by Directory
 This function is especially useful when creating a new project to add all the
 files contained in the targets directory. The following code block illustrates
@@ -337,4 +341,151 @@ command:
 >>> project.remove_target(“target_1”)
 ```
 
-Now the target file won't be part of the metadata.
+Now the target file will no longer be part of the metadata.
+
+<a name="the_status_method">
+## The Status Method
+
+Before calling write() or partial_write(), it’s good idea to call the Project’s
+status() method, which will list all the changes to targets and roles that will
+be signed and written to the metadata. Calling status() will display a message
+that looks something like this:
+
+```
+>>> project.status()
+...   Unwritten changes have been detected in the following roles:
+...
+...     ready to write:
+...
+...       project (1/1 signing keys loaded)
+...         delegation created: foo
+...         target modified: targ.txt
+...
+...       foo (1/1 signing keys loaded)
+...         target added: deltarg.txt
+...
+...   The Project can be fully written.
+```
+
+This means that we can call write(), and the listed updates will be written to
+the metadata.
+
+If there are changes made by roles whose signing keys are not loaded, those
+changes will be listed separately when we call status(), like this:
+
+```
+>>> project.status()
+...   Unwritten changes have been detected in the following roles:
+...
+...     will not be written:
+...
+...       foo (0/1 signing keys loaded)
+...         target modified: deltarg.txt
+...
+...   The Project cannot be written.
+```
+
+<a name="writing_metadata_as_a_delegated_role">
+## Writing Metadata as a Delegated Role
+In previous examples where write() is invoked, we have always had the project's
+signing key loaded. Having this key allows us to sign for any change to the
+project. However, it is also possible to write metadata using a delegated
+role's signing key(s).
+
+Loading a delegated role’s signing key(s) will allow you to sign changes to any
+target(s) that belong to that role.
+
+TODO: write as delegated role
+
+### Partial Write
+
+When a role has a threshold greater than 1, it may be that multiple key
+holders will need to sign changes to that role individually. In this case, each
+key holder must sign and write the metadata one at a time, each passing their
+newly written metadata to the next person.
+
+The problem with this process is that the in-between versions of the metadata,
+which have fewer signatures than the threshold requires, are considered
+incomplete, since they are not suitable for release. In this case, an attempt
+to call write() will throw an exception. Instead, you must use partial_write().
+
+Status() is particularly useful when making partial writes. If there are any
+changes detected in roles for which some of the required threshold of signing
+keys have been loaded, these roles will be listed separately:
+
+```
+>>> project.status()
+...   Unwritten changes have been detected in the following roles:
+...
+...     partially writable:
+...
+...       foo (1/3 signing keys loaded)
+...         target modified: targ.txt
+...
+...   The Project can be partially written.
+```
+
+This means that we cannot call write(), but we can call partial_write(). Note
+that once we do call partial_write() the metadata will not be valid for
+release until all of the necessary signatures have been made.
+
+Continuing from the example above, let’s see what happens when we do the
+partial write:
+
+```
+>>> project.partial_write()
+>>> project.status()
+...   The following roles have been partially written:
+...       foo (1/3 signed)
+...
+...   There are no changes to write.
+```
+
+At this point we will need to send the version of the project (i.e. the targets
+and metadata) to one of the other key holders for the foo role. The steps the
+other key holder needs to take are as follows, with gratuitous status calls for
+clarity:
+
+```
+>>> from tuf.developer_tool import *
+>>> project = load_project(“...”)
+>>> project.status()
+...   The following roles have been partially written:
+...       foo (1/3 signed)
+...
+...   There are no changes to write.
+...
+>>> project(“foo”).load_signing_key(second_private_key)
+>>> project.status()
+...   The following roles have been partially written:
+...       foo (1/3 signed, 1 signing key loaded, 2/3 on write)
+...
+...   The Project can be partially written.
+...
+>>> project.partial_write()
+>>> project.status()
+...   The following roles have been partially written:
+...       foo (2/3 signed)
+...
+...   There are no changes to write.
+```
+
+Adding the final signature will look like this:
+
+```
+>>> from tuf.developer_tool import *
+>>> project = load_project(“...”)
+>>> project(“foo”).load_signing_key(third_private_key)
+>>> project.status()
+...   The following roles have been partially written:
+...       foo (2/3 signed, 1 signing key loaded, 3/3 on write)
+...
+...   The Project can be fully written.
+...
+>>> project.write()
+>>> project.status()
+...   There are no changes to write.
+```
+
+Note that we called write() instead of partial_write(), since the metadata we
+are writing is now complete, and suitable for release.
