@@ -57,8 +57,16 @@ logger = logging.getLogger('tuf.roledb')
 # The role database.
 _roledb_dict = {}
 
+_track_changes = False
 
-def create_roledb_from_root_metadata(root_metadata):
+# A dict of all roles' unwritten changes.
+_unwritten_role_changes = {}
+
+# Which roles do not have the required number of signatures as of the latest write.
+_partially_written_rolenames = set()
+
+
+def create_roledb_from_root_metadata(root_metadata, track_changes=False):
   """
   <Purpose>
     Create a role database containing all of the unique roles found in
@@ -68,6 +76,9 @@ def create_roledb_from_root_metadata(root_metadata):
     root_metadata:
       A dictionary conformant to 'tuf.formats.ROOT_SCHEMA'.  The roles found
       in the 'roles' field of 'root_metadata' is needed by this function.  
+
+    track_changes:
+      If True, the roledb will keep track of all unwritten changes to the roles.
 
   <Exceptions>
     tuf.FormatError, if 'root_metadata' does not have the correct object format.
@@ -83,6 +94,8 @@ def create_roledb_from_root_metadata(root_metadata):
   <Returns>
     None.
   """
+
+  _track_changes = track_changes
 
   # Does 'root_metadata' have the correct object format?
   # This check will ensure 'root_metadata' has the appropriate number of objects 
@@ -195,8 +208,105 @@ def add_role(rolename, roleinfo, require_parent=True):
 
   _roledb_dict[rolename] = copy.deepcopy(roleinfo)
 
+  _unwritten_role_changes[rolename] = {created: True, touched: False}
 
 
+def _generate_role_changes_entry(created):
+  return {'created': created,
+          'touched': False,
+          'targets_added': [],
+          'targets_removed': [],
+          'delegations_made': [],
+          'delegations_removed': [],
+          'delegation_keys_added': {},
+          'delegation_keys_revoked': {},
+          'delegation_thresholds_modified': {},
+          'delegation_paths_added': {},
+          'delegation_paths_removed': {},
+          'delegation_path_hash_prefixes_added': {},
+          'delegation_path_hash_prefixes_removed': {}}
+
+
+def _modify_changes_list(changes_list, list_to_add, list_to_remove):
+  changes_list = list((set(changes_list) + set(list_to_add)) \
+                              - set(list_to_remove))
+
+def _retrieve_list_from_dict(given_dict, key):
+  if given_dict in key:
+    if isinstance(given_dict[key], list)
+      return given_dict[key]
+    else:
+      return list(given_dict[key])
+  else:
+    return []
+
+
+def _update_unwritten_role_changes(rolename, new_roleinfo):
+
+  if rolename in _unwritten_role_changes:
+    changes = _unwritten_role_changes[rolename]
+  else:
+    changes = _generate_role_changes_entry(created=False)
+
+  previous_roleinfo = _roledb_dict[rolename]
+
+
+  # Record changes to targets.
+  previous_paths = _retrieve_list_from_dict(previous_roleinfo, 'paths')
+  new_paths = _retrieve_list_from_dict(new_roleinfo, 'paths')
+
+  _modify_changes_list(changes['targets_added'], new_paths, previous_paths)
+  _modify_changes_list(changes['targets_removed'], previous_paths, new_paths)
+
+
+  # Record created and revoked delegations.
+  previous_delegated_rolenames = previous_roleinfo['delegations']['roles'].keys()
+
+  new_delegated_rolenames = new_roleinfo['delegations']['roles'].keys()
+
+  _modify_changes_list(changes['delegations_made'], 
+        new_delegated_rolenames, previous_delegated_rolenames)
+
+  _modify_changes_list(changes['delegations_revoked'],
+        previous_delegated_rolenames, new_delegated_rolenames)
+
+  # Record changes to delegations. Changes to delegations slated to be revoked
+  # are maintained until the revokation is written.
+  all_delegated_rolenames = list(set(previous_delegated_rolenames) + \
+                                  set(new_delegated_rolenames))
+
+  for delegated_rolename in all_delegated_rolenames:
+    previous_delegated_role = previous_roleinfo['delegations']['roles'][delegated_rolename]
+    new_delegated_role = new_roleinfo['delegations']['roles'][delegated_rolename]
+
+    # Record added and revoked keys.
+    previous_keys = _retrieve_list_from_dict(previous_delegated_role, 'keyids')
+    new_keys = _retrieve_list_from_dict(new_delegated_role, 'keyids')
+    _modify_changes_list(changes['keys_added'][delegated_rolename], new_keys, previous_keys)
+    _modify_changes_list(changes['keys_revoked'][delegated_rolename], previous_keys, new_keys)
+
+    # Record added and removed paths.
+    previous_paths = _retrieve_list_from_dict(previous_delegated_role, 'paths')
+    new_paths = _retrieve_list_from_dict(new_delegated_role, 'paths')
+    _modify_changes_list(changes['paths_added'][delegated_rolename], new_paths, previous_paths)
+    _modify_changes_list(changes['paths_removed'][delegated_rolename], previous_paths, new_paths)
+
+    # Record added and removed path has prefixes.
+    previous_prefixes = _retrieve_list_from_dict(previous_delegated_role, 'path_hash_prefixes')
+    new_prefixes = _retrieve_list_from_dict(new_delegated_role, 'path_hash_prefixes')
+    _modify_changes_list(changes['delegation_path_hash_prefixes_added'][delegated_rolename], new_prefixes, previous_prefixes)
+    _modify_changes_list(changes['delegation_path_hash_prefixes_removed'][delegated_rolename], previous_prefixes, new_prefixes)
+
+    # Record changes to thresholds
+    threshold_diff = new_delegated_role['threshold'] - previous_delegated_role['threshold']
+    changes['delegation_thresholds_modified'][delegated_rolename] += threshold_diff
+
+
+  if changes == _generate_role_changes_entry(created=False):
+    del _unwritten_role_changes[rolename]
+
+  else:
+    _unwritten_role_changes[rolename] = changes
 
 
 def update_roleinfo(rolename, roleinfo):
@@ -251,11 +361,96 @@ def update_roleinfo(rolename, roleinfo):
   if rolename not in _roledb_dict:
     raise tuf.UnknownRoleError('Role does not exist: '+rolename)
 
+  # Record the changes and update the role.
+  if _track_changes:
+    _update_unwritten_role_changes(rolename, roleinfo)
+
   _roledb_dict[rolename] = copy.deepcopy(roleinfo)
 
-  
+
+def signature_count_on_write(rolename):
+
+  _check_rolename(rolename)
+
+  signing_keyids = set(_roledb_dict[rolename]['signing_keyids'])
+  delegation = _roledb_dict[get_parent_rolename(rolename)]['delegations'][rolename]
+  delegated 
 
 
+  if rolename in _unwritten_role_changes.keys()
+
+    # If changes have been made, the old signatures will be removed,
+    # the sigining keys will be used to make new signatures.
+    return len(signing_keyids)
+
+  else:
+
+    signed_keyids = set(sig['keyid'] for sig in \
+                              _roledb_dict[rolename]['signatures'])
+
+    # If the role is partially signed and no changes have been made, any
+    # signing keys that have not signed the role will do so.
+    if len(signed_keyids) < threshold:
+      return len(signing_keyids + signed_keyids)
+
+    # If no changes have been made, and no new signatures are needed for a
+    # full write, no new signatures.
+    else:
+      return len(signed_keyids)
+
+
+
+def list_changed_rolenames():
+  return _unwritten_role_changes.keys()
+
+
+def list_incomplete_unchanged_rolenames():
+  assert _track_changes
+
+  incomplete_unchanged_rolenames = [] 
+  dirty_rolenames = _unwritten_role_changes.keys()
+
+  # Append all partially written unchanged roles.
+  for rolename in _partially_written_rolenames:
+    if rolename not in dirty_rolenames:
+      incomplete_unchanged_rolenames.append(rolename)
+
+
+  # Append any unchanged role whose parent's changes will cause it to become
+  # incomplete. Ignore roles already in the list.
+  for parent_rolename in dirty_rolenames:
+    for delegation in _roledb_dict[parent_rolename]['delegations']['roles'].values()
+      if delegation['name'] not in _partially_written_rolenames:
+
+        delegated_role = _roledb_dict[delegation['name']]
+        valid_keyids = set(delegation['keyids'])
+        signed_keyids = set(sig['keyid'] for sig in delegated_role['signatures'])
+        valid_signature_count = len(valid_keyids.intersection(signed_keyids))
+
+        if valid_signature_count < delegation['threshold']:
+          incomplete_unchanged_rolenames.add(delegated_role['name'])
+
+  return incomplete_unchanged_rolenames
+
+
+def touch_role(rolename, value=True):
+  assert _track_changes
+
+  if rolename not in _unwritten_role_changes.keys():
+    if value == False:
+      return
+    else:
+      _unwritten_role_changes[rolename] = _generate_role_changes_entry(created=False)
+
+  _unwritten_role_changes[rolename]['touched'] = value
+
+
+def clear_unwritten_changes_after_write():
+  _unwritten_role_changes = {}
+
+
+def set_partially_written_rolenames(rolename_set):
+  _partially_written_rolenames
 
 
 def get_parent_rolename(rolename):
@@ -643,6 +838,16 @@ def get_role_paths(rolename):
     return dict()
 
 
+
+def get_role_changes(rolename):
+
+  # Raises tuf.FormatError, tuf.UnknownRoleError, or tuf.InvalidNameError.
+  _check_rolename(rolename)
+
+  if rolename in _unwritten_role_changes.keys():
+    return _unwritten_role_changes[rolename]
+  else:
+    return _generate_role_changes_entry(created=False)
 
 
 

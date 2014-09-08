@@ -223,6 +223,38 @@ class Repository(object):
     # populated, otherwise write() throwns a 'tuf.UnsignedMetadataError'
     # exception if any of the top-level roles are missing signatures, keys, etc.
 
+    dirty_rolenames = set(tuf.roledb.list_changed_rolenames())
+    dirty_target_rolenames = set() #set(get_dirty_target_rolenames()) # need this to exist
+    incomplete_rolenames = set(tuf.roledb.list_incomplete_unchanged_rolenames())
+    assert write_partial or len(incomplete_rolenames) == 0
+
+    writable_rolenames = list(dirty_rolenames + dirty_target_rolenames)
+
+    while len(writable_rolenames) > 0:
+      rolename = writable_rolenames.pop()
+      roleinfo = get_roleinfo(rolename)
+
+      # If the role has dirty children, let them be written first
+      for delegated_rolename in roleinfo['delegations']['roles'].keys():
+        if delegated_rolename in writable_rolenames:
+          writable_rolenames.insert(0, rolename)
+          continue
+
+      role_filename = os.path.join(self._metadata_directory, rolename + 'json')
+
+      repo_lib._generate_and_write_metadata(rolename, role_filename,
+                                            write_partial,
+                                            self._targets_directory,
+                                            self._metadata_directory,
+                                            consistent_snapshot)
+
+    tuf.roledb.clear_unwritten_changes_after_write()
+    tuf.roledb.set_partially_written_rolenames(incomplete_rolenames)
+
+        
+
+  def old_write(self, write_partial=False, consistent_snapshot=False):
+
     # Write the metadata files of all the delegated roles.  Ensure target paths
     # are allowed, metadata is valid and properly signed, and required files and
     # directories are created. 
@@ -824,6 +856,16 @@ class Metadata(object):
 
     else:
       raise tuf.Error('Signature not found.')
+
+
+
+  def touch(self):
+    tuf.roledb.touch_role(self.rolename, value=True)
+
+
+
+  def untouch(self):
+    tuf.roledb.touch_role(self.rolename, value=False)
 
 
 

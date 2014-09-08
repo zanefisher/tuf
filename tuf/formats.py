@@ -366,11 +366,16 @@ PATH_HASH_PREFIX_SCHEMA = HEX_SCHEMA
 # A list of path hash prefixes.
 PATH_HASH_PREFIXES_SCHEMA = SCHEMA.ListOf(PATH_HASH_PREFIX_SCHEMA)
 
+# A dict of path hash prefixes by rolename.
+PATH_HASH_PREFIXES_SCHEMA = SCHEMA.DictOf(
+  key_schema = ROLENAME_SCHEMA,
+  value_schema = PATH_HASH_PREFIX_SCHEMA)
+
 # Role object in {'keyids': [keydids..], 'name': 'ABC', 'threshold': 1,
 # 'paths':[filepaths..]} format.
 ROLE_SCHEMA = SCHEMA.Object(
   object_name = 'ROLE_SCHEMA',
-  name = SCHEMA.Optional(ROLENAME_SCHEMA),
+  name = ROLENAME_SCHEMA,
   keyids = KEYIDS_SCHEMA,
   threshold = THRESHOLD_SCHEMA,
   backtrack = SCHEMA.Optional(BOOLEAN_SCHEMA),
@@ -389,7 +394,7 @@ ROLELIST_SCHEMA = SCHEMA.ListOf(ROLE_SCHEMA)
 # The delegated roles of a Targets role (a parent).
 DELEGATIONS_SCHEMA = SCHEMA.Object(
   keys = KEYDICT_SCHEMA,
-  roles = ROLELIST_SCHEMA)
+  roles = ROLEDICT_SCHEMA)
 
 # Supported compression extension (e.g., 'gz').
 COMPRESSION_SCHEMA = SCHEMA.OneOf([SCHEMA.String(''), SCHEMA.String('gz')])
@@ -406,6 +411,37 @@ CUSTOM_SCHEMA = SCHEMA.Object()
 PATH_FILEINFO_SCHEMA = SCHEMA.DictOf(
   key_schema = RELPATH_SCHEMA,
   value_schema = CUSTOM_SCHEMA)
+
+ROLE_KEYIDS_DICT_SCHEMA = SCHEMA.DictOF(
+  key_schema = ROLENAME_SCHEMA,
+  value_schema = KEYIDS_SCHEMA)
+
+ROLE_THRESHOLD_DIFFERENCE_DICT_SCHEMA = SCHEMA.DictOF(
+  key_schema = ROLENAME_SCHEMA,
+  value_schema = SCHEMA.Integer())
+
+ROLE_PATHS_DICT_SCHEMA = SCHEMA.DictOF(
+  key_schema = ROLENAME_SCHEMA,
+  value_schema = RELPATHS_SCHEMA)
+
+ROLE_CHANGES_SCHEMA = SCHEMA.Object(
+  created = BOOLEAN_SCHEMA,
+  touched = BOOLEAN_SCHEMA,
+  targets_added = RELPATHS_SCHEMA,
+  targets_removed = RELPATHS_SCHEMA,
+  delegations_made = SCHEMA.ListOf(ROLENAME_SCHEMA),
+  delegations_revoked = SCHEMA.ListOf(ROLENAME_SCHEMA),
+  delegation_keys_added = ROLE_KEYIDS_DICT_SCHEMA,
+  delegation_keys_revoked = ROLE_KEYIDS_DICT_SCHEMA,
+  delegation_thresholds_modified = ROLE_THRESHOLD_DIFFERENCE_DICT_SCHEMA,
+  delegation_paths_added = ROLE_PATH_DICT_SCHEMA,
+  delegation_paths_removed = ROLE_PATH_DICT_SCHEMA,
+  delegation_path_hash_prefixes_added = PATH_HASH_PREFIX_DICT_SCHEMA,
+  delegation_path_hash_prefixes_removed = PATH_HASH_PREFIX_DICT_SCHEMA)
+
+ROLE_CHANGES_DICT_SCHEMA = SCHEMA.DictOF(
+  key_schema = ROLENAME_SCHEMA,
+  value_schema = ROLE_CHANGES_SCHEMA)
 
 # tuf.roledb
 ROLEDB_SCHEMA = SCHEMA.Object(
