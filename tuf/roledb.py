@@ -65,6 +65,9 @@ _unwritten_role_changes = {}
 # Which roles do not have the required number of signatures as of the latest write.
 _partially_written_rolenames = set()
 
+# A dict that stores a list of roles that sign for each targets path.
+_signers_of_target_paths = dict()
+
 
 def create_roledb_from_root_metadata(root_metadata, track_changes=False):
   """
@@ -116,6 +119,7 @@ def create_roledb_from_root_metadata(root_metadata, track_changes=False):
       roleinfo['version'] = root_metadata['version']
       roleinfo['expires'] = root_metadata['expires']
     
+    roleinfo['name'] = rolename
     roleinfo['signatures'] = []
     roleinfo['signing_keyids'] = []
     roleinfo['compressions'] = ['']
@@ -208,7 +212,16 @@ def add_role(rolename, roleinfo, require_parent=True):
 
   _roledb_dict[rolename] = copy.deepcopy(roleinfo)
 
-  _unwritten_role_changes[rolename] = {created: True, touched: False}
+  # Update _unwritten_role_changes and _signers_of_target_paths if changes are being tracked.
+  if _track_changes:
+
+    _unwritten_role_changes[rolename] = _generate_role_changes_entry(created=True)
+
+    for target in roleinfo['paths']:
+      if target in _signers_of_target_paths:
+        _signers_of_target_paths[target].add(rolename)
+      else:
+        _signers_of_target_paths[target] = set().add(rolename)
 
 
 def _generate_role_changes_entry(created):
@@ -233,7 +246,7 @@ def _modify_changes_list(changes_list, list_to_add, list_to_remove):
 
 def _retrieve_list_from_dict(given_dict, key):
   if given_dict in key:
-    if isinstance(given_dict[key], list)
+    if isinstance(given_dict[key], list):
       return given_dict[key]
     else:
       return list(given_dict[key])
@@ -258,11 +271,26 @@ def _update_unwritten_role_changes(rolename, new_roleinfo):
   _modify_changes_list(changes['targets_added'], new_paths, previous_paths)
   _modify_changes_list(changes['targets_removed'], previous_paths, new_paths)
 
+  # Update _signers_of_target_paths.
+  for added_target_path in new_paths - previous_paths:
+    if added_target_path in _signers_of_target_paths:
+      _signers_of_target_paths[added_target_path].add(rolename)
+    else:
+      _signers_of_target_paths[added_target_path] = set().add(rolename)
+
+  for removed_target_path in previous_paths - new_paths:
+    _signers_of_target_paths[removed_target_path].discard(rolename)
+
 
   # Record created and revoked delegations.
-  previous_delegated_rolenames = previous_roleinfo['delegations']['roles'].keys()
+  previous_delegated_role_dict = dict((role['name'], role) for role in \
+                                    previous_roleinfo['delegations']['roles'])
 
-  new_delegated_rolenames = new_roleinfo['delegations']['roles'].keys()
+  new_delegated_role_dict = dict((role['name'], role) for role in \
+                                    new_roleinfo['delegations']['roles'])
+
+  previous_delegated_rolenames = previous_delegated_role_dict.keys()
+  new_delegated_rolenames = new_delegated_role_dict.keys()
 
   _modify_changes_list(changes['delegations_made'], 
         new_delegated_rolenames, previous_delegated_rolenames)
@@ -276,8 +304,8 @@ def _update_unwritten_role_changes(rolename, new_roleinfo):
                                   set(new_delegated_rolenames))
 
   for delegated_rolename in all_delegated_rolenames:
-    previous_delegated_role = previous_roleinfo['delegations']['roles'][delegated_rolename]
-    new_delegated_role = new_roleinfo['delegations']['roles'][delegated_rolename]
+    previous_delegated_role = previous_delegated_role_dict[delegated_rolename]
+    new_delegated_role = new_delegated_role_dict['roles'][delegated_rolename]
 
     # Record added and revoked keys.
     previous_keys = _retrieve_list_from_dict(previous_delegated_role, 'keyids')
@@ -373,11 +401,13 @@ def signature_count_on_write(rolename):
   _check_rolename(rolename)
 
   signing_keyids = set(_roledb_dict[rolename]['signing_keyids'])
-  delegation = _roledb_dict[get_parent_rolename(rolename)]['delegations'][rolename]
-  delegated 
+  for role in _roledb_dict[get_parent_rolename(rolename)]['delegations']['roles']:
+    if role['name'] == rolename:
+      threshold = role['threshold']
+      break
 
 
-  if rolename in _unwritten_role_changes.keys()
+  if rolename in _unwritten_role_changes.keys():
 
     # If changes have been made, the old signatures will be removed,
     # the sigining keys will be used to make new signatures.
@@ -419,7 +449,7 @@ def list_incomplete_unchanged_rolenames():
   # Append any unchanged role whose parent's changes will cause it to become
   # incomplete. Ignore roles already in the list.
   for parent_rolename in dirty_rolenames:
-    for delegation in _roledb_dict[parent_rolename]['delegations']['roles'].values()
+    for delegation in _roledb_dict[parent_rolename]['delegations']['roles']:
       if delegation['name'] not in _partially_written_rolenames:
 
         delegated_role = _roledb_dict[delegation['name']]
@@ -428,7 +458,7 @@ def list_incomplete_unchanged_rolenames():
         valid_signature_count = len(valid_keyids.intersection(signed_keyids))
 
         if valid_signature_count < delegation['threshold']:
-          incomplete_unchanged_rolenames.add(delegated_role['name'])
+          incomplete_unchanged_rolenames.append(delegated_role['name'])
 
   return incomplete_unchanged_rolenames
 
@@ -445,12 +475,15 @@ def touch_role(rolename, value=True):
   _unwritten_role_changes[rolename]['touched'] = value
 
 
-def clear_unwritten_changes_after_write():
-  _unwritten_role_changes = {}
+def clear_role_changes(rolename):
+  del _unwritten_role_changes[rolename]
 
 
-def set_partially_written_rolenames(rolename_set):
-  _partially_written_rolenames
+def set_role_complete(rolename):
+  _partially_written_rolenames.discard(rolename)
+
+def set_role_incomplete(rolename):
+  _partially_written_rolenames.add(rolename)
 
 
 def get_parent_rolename(rolename):
@@ -616,6 +649,7 @@ def remove_role(rolename):
   # 'rolename' was verified to exist by _check_rolename().
   # Remove 'rolename'.
   del _roledb_dict[rolename]
+  _partially_written_rolenames.discard(rolename)
 
 
 
@@ -893,6 +927,29 @@ def get_delegated_rolenames(rolename):
   return delegated_roles
 
 
+
+def get_delegation_info(rolename):
+
+  parent_rolename = get_parent_rolename(rolename)
+
+  if parent_rolename == "":
+    return None
+  else:
+    return copy.deepcopy(_roledb_dict[parent_rolename]['delegations']['roles']
+                                                                    [rolename])
+
+
+def get_signers_of_target_path(target_filepath):
+  signers = _signers_of_target_paths[target_filepath]
+
+  # Remove any signers from the list that are no longer in the db.
+  for rolename in signers:
+    if rolename not in _roledb_dict:
+      signers.remove(rolename)
+
+  _signers_of_target_paths[target_filepath] = signers
+
+  return signers
 
 
 

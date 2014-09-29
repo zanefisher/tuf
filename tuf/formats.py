@@ -367,7 +367,7 @@ PATH_HASH_PREFIX_SCHEMA = HEX_SCHEMA
 PATH_HASH_PREFIXES_SCHEMA = SCHEMA.ListOf(PATH_HASH_PREFIX_SCHEMA)
 
 # A dict of path hash prefixes by rolename.
-PATH_HASH_PREFIXES_SCHEMA = SCHEMA.DictOf(
+PATH_HASH_PREFIX_DICT_SCHEMA = SCHEMA.DictOf(
   key_schema = ROLENAME_SCHEMA,
   value_schema = PATH_HASH_PREFIX_SCHEMA)
 
@@ -391,10 +391,11 @@ ROLEDICT_SCHEMA = SCHEMA.DictOf(
 # Like ROLEDICT_SCHEMA, except that ROLE_SCHEMA instances are stored in order.
 ROLELIST_SCHEMA = SCHEMA.ListOf(ROLE_SCHEMA)
 
-# The delegated roles of a Targets role (a parent).
+# The delegated roles of a Targets role (a parent). The roles are listed in
+# order of descending priority.
 DELEGATIONS_SCHEMA = SCHEMA.Object(
   keys = KEYDICT_SCHEMA,
-  roles = ROLEDICT_SCHEMA)
+  roles = ROLELIST_SCHEMA)
 
 # Supported compression extension (e.g., 'gz').
 COMPRESSION_SCHEMA = SCHEMA.OneOf([SCHEMA.String(''), SCHEMA.String('gz')])
@@ -412,15 +413,15 @@ PATH_FILEINFO_SCHEMA = SCHEMA.DictOf(
   key_schema = RELPATH_SCHEMA,
   value_schema = CUSTOM_SCHEMA)
 
-ROLE_KEYIDS_DICT_SCHEMA = SCHEMA.DictOF(
+ROLE_KEYIDS_DICT_SCHEMA = SCHEMA.DictOf(
   key_schema = ROLENAME_SCHEMA,
   value_schema = KEYIDS_SCHEMA)
 
-ROLE_THRESHOLD_DIFFERENCE_DICT_SCHEMA = SCHEMA.DictOF(
+ROLE_THRESHOLD_DIFFERENCE_DICT_SCHEMA = SCHEMA.DictOf(
   key_schema = ROLENAME_SCHEMA,
   value_schema = SCHEMA.Integer())
 
-ROLE_PATHS_DICT_SCHEMA = SCHEMA.DictOF(
+ROLE_PATHS_DICT_SCHEMA = SCHEMA.DictOf(
   key_schema = ROLENAME_SCHEMA,
   value_schema = RELPATHS_SCHEMA)
 
@@ -434,12 +435,12 @@ ROLE_CHANGES_SCHEMA = SCHEMA.Object(
   delegation_keys_added = ROLE_KEYIDS_DICT_SCHEMA,
   delegation_keys_revoked = ROLE_KEYIDS_DICT_SCHEMA,
   delegation_thresholds_modified = ROLE_THRESHOLD_DIFFERENCE_DICT_SCHEMA,
-  delegation_paths_added = ROLE_PATH_DICT_SCHEMA,
-  delegation_paths_removed = ROLE_PATH_DICT_SCHEMA,
+  delegation_paths_added = ROLE_PATHS_DICT_SCHEMA,
+  delegation_paths_removed = ROLE_PATHS_DICT_SCHEMA,
   delegation_path_hash_prefixes_added = PATH_HASH_PREFIX_DICT_SCHEMA,
   delegation_path_hash_prefixes_removed = PATH_HASH_PREFIX_DICT_SCHEMA)
 
-ROLE_CHANGES_DICT_SCHEMA = SCHEMA.DictOF(
+ROLE_CHANGES_DICT_SCHEMA = SCHEMA.DictOf(
   key_schema = ROLENAME_SCHEMA,
   value_schema = ROLE_CHANGES_SCHEMA)
 
@@ -454,6 +455,7 @@ ROLEDB_SCHEMA = SCHEMA.Object(
   signatures = SCHEMA.Optional(SIGNATURES_SCHEMA),
   compressions = SCHEMA.Optional(COMPRESSIONS_SCHEMA),
   paths = SCHEMA.Optional(SCHEMA.OneOf([RELPATHS_SCHEMA, PATH_FILEINFO_SCHEMA])),
+  signed_target_info = SCHEMA.Optional(FILEDICT_SCHEMA),
   path_hash_prefixes = SCHEMA.Optional(PATH_HASH_PREFIXES_SCHEMA),
   delegations = SCHEMA.Optional(DELEGATIONS_SCHEMA),
   partial_loaded = SCHEMA.Optional(BOOLEAN_SCHEMA))

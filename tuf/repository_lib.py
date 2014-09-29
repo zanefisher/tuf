@@ -106,8 +106,13 @@ def _generate_and_write_metadata(rolename, metadata_filename, write_partial,
                                  consistent_snapshot=False, filenames=None):
   """
   Non-public function that can generate and write the metadata of the specified
-  top-level 'rolename'.  It also increments version numbers if:
-  
+  top-level 'rolename'.
+
+  Updates roledb to reflect changes made to the roles, such as signatures and
+  hashes.
+
+  It also increments version numbers if:
+
   1.  write_partial==True and the metadata is the first to be written.
   
   2.  write_partial=False (i.e., write()), the metadata was not loaded as
@@ -188,7 +193,9 @@ def _generate_and_write_metadata(rolename, metadata_filename, write_partial,
   # Write the metadata to file if contains a threshold of signatures. 
   signable['signatures'].extend(roleinfo['signatures']) 
   
-  if tuf.sig.verify(signable, rolename) or write_partial:
+  role_complete = tuf.sig.verify(signable, rolename)
+
+  if role_complete or write_partial:
     _remove_invalid_and_duplicate_signatures(signable)
     compressions = roleinfo['compressions']
     filename = write_metadata_file(signable, metadata_filename, compressions,
@@ -200,6 +207,16 @@ def _generate_and_write_metadata(rolename, metadata_filename, write_partial,
     if rolename == 'root' or rolename == 'timestamp':
       write_metadata_file(signable, metadata_filename, compressions,
                           consistent_snapshot=False)
+
+    # Update roledb.
+    update_fileinfo_from_metadata_file(os.path.join(metadata_directory,
+                                                    metadata_filename))
+    tuf.roledb.clear_role_changes(rolename)
+    if role_complete:
+      tuf.roledb.set_role_complete(rolename)
+    else:
+      tuf.roledb.set_role_incomplete(rolename)
+
     
   
   # 'signable' contains an invalid threshold of signatures. 
@@ -651,6 +668,7 @@ def _load_top_level_metadata(repository, top_level_filenames):
     roleinfo = tuf.roledb.get_roleinfo('targets')
     for filepath, fileinfo in six.iteritems(targets_metadata['targets']):
       roleinfo['paths'].update({filepath: fileinfo.get('custom', {})})
+      roleinfo['signed_target_info'].update({filepath: fileinfo})
     roleinfo['version'] = targets_metadata['version']
     roleinfo['expires'] = targets_metadata['expires']
     roleinfo['delegations'] = targets_metadata['delegations']
@@ -686,8 +704,9 @@ def _load_top_level_metadata(repository, top_level_filenames):
       roleinfo = {'name': role['name'], 'keyids': role['keyids'],
                   'threshold': role['threshold'], 'compressions': [''],
                   'signing_keyids': [], 'partial_loaded': False, 'paths': {},
-                  'signatures': [], 'delegations': {'keys': {},
-                                                    'roles': []}}
+                  'signed_target_info': {}, 'signatures': [],
+                  'delegations': {'keys': {},
+                                  'roles': []}}
       tuf.roledb.add_role(rolename, roleinfo)
   
   else:
@@ -1259,6 +1278,32 @@ def get_metadata_fileinfo(filename, custom=None):
   return tuf.formats.make_fileinfo(filesize, filehashes, custom)
 
 
+
+def update_fileinfo_from_metadata_file(metadata_path):
+
+  signable = tuf.util.load_json_file(metadata_path)  
+  metadata_object = signable['signed']
+
+  # Extract the metadata attributes 'metadata_name' and update its
+  # corresponding roleinfo.
+  roleinfo = tuf.roledb.get_roleinfo(metadata_name)
+  roleinfo['signatures'].extend(signable['signatures'])
+  roleinfo['version'] = metadata_object['version']
+  roleinfo['expires'] = metadata_object['expires']
+  for filepath, fileinfo in six.iteritems(metadata_object['targets']):
+    roleinfo['paths'].update({filepath: fileinfo.get('custom', {})})
+    roleinfo['signed_target_info'].update({filepath: fileinfo})
+  roleinfo['delegations'] = metadata_object['delegations']
+
+  if os.path.exists(metadata_path + '.gz'):
+    roleinfo['compressions'].append('gz')
+ 
+  # The roleinfo of 'metadata_name' should have been initialized with
+  # defaults when it was loaded from its parent role.
+  if repo_lib._metadata_is_partially_loaded(metadata_name, signable, roleinfo):
+    roleinfo['partial_loaded'] = True
+  
+  tuf.roledb.update_roleinfo(metadata_name, roleinfo)
 
 
 
